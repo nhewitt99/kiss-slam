@@ -1,0 +1,9 @@
+services:
+  ros:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/ws
+    network_mode: host
+
