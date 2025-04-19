@@ -7,6 +7,8 @@
   <maintainer email="mail@nhewitt.me">Nathan Hewitt</maintainer>
   <license>MIT</license>
 
+  <depend>tf2_ros</depend>
+  <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>sensor_msgs_py</depend>
   <depend>visualization_msgs</depend>
