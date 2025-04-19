@@ -10,7 +10,8 @@ from rclpy.node import Node
 from kiss_slam.slam import KissSLAM
 from kiss_slam.config import load_config
 
-from kiss_slam_ros.kiss_conversions import pc2_to_numpy, create_marker, create_transform
+from kiss_slam_ros.kiss_slam_ros.conversions import pc2_to_numpy, build_marker, build_transform, build_odometry, matrix_to_pose
+from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
 from sensor_msgs.msg import PointCloud2
@@ -34,22 +35,19 @@ class KissSLAMNode(Node):
     def cloud_callback(self, in_msg: PointCloud2):
         self.kiss.process_scan(pc2_to_numpy(in_msg), np.empty((0,)))
 
-        pose = self.kiss.poses[-1]
-        R = Rotation.from_matrix(pose[:3,:3])
-        q = R.as_quat()
+        pose = matrix_to_pose(self.kiss.poses[-1])
+        header = Header()
+        header.stamp = in_msg.header.stamp
+        header.frame_id = "map"
 
-        marker = create_marker(pose[0,3], pose[1,3], pose[2,3], q)
-        marker.header.stamp = in_msg.header.stamp
+        marker = build_marker(header, pose)
         self.marker_publisher.publish(marker)
 
-        t = create_transform(pose[0,3], pose[1,3], pose[2,3], q)
-        t.header.stamp = in_msg.header.stamp
-        t.header.frame_id = "map"
-        t.child_frame_id = in_msg.header.frame_id
+        t = build_transform(header, pose, in_msg.header.frame_id)
         self.tf_broadcaster.sendTransform(t)
 
-        out_msg = Odometry()
-        self.odom_publisher.publish(out_msg)
+        odom = build_odometry(header, pose, 0.1, 0.1)
+        self.odom_publisher.publish(odom)
 
 
 def main(args=None):
