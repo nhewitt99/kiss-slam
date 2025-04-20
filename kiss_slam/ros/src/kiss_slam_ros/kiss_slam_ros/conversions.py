@@ -8,19 +8,33 @@ from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, TransformStamped
 from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2
-from visualization_msgs.msg import Marker
 from nav_msgs.msg import Odometry
 
 
 def pc2_to_numpy(msg: PointCloud2):
-    # We do this instead of using read_points_numpy() to handle
-    # cases where intensity channel might be different type than xyz types
+    """Convert a PointCloud2 to an (n, 3) numpy array for injestion by KISS-SLAM.
+    This is distinct from point_cloud2.read_points_numpy() so we can handle clouds that
+    have a different dtype between xyz and other fields.
+    
+    :param msg: Point source to be converted
+    :type msg: PointCloud2
+    :return: An array of size (n,3) with the same point information
+    :rtype: np.ndarray
+    """
     fields = ['x', 'y', 'z']
     structured = point_cloud2.read_points(msg, field_names=fields)
     unstructured = point_cloud2.structured_to_unstructured(structured)
     return unstructured
 
 def matrix_to_pose(mtx: np.ndarray):
+    """Convert a homogenous transformation matrix into a geometry_msgs Pose.
+    Welcome to suggestions of existing libraries for this.
+
+    :param mtx: Homogenous transformation matrix to be converted of size (4,4)
+    :type mtx: np.ndarray
+    :return: A Pose message representing the same transformation
+    :rtype: Pose
+    """
     pose = Pose()
 
     pose.position.x = mtx[0,3]
@@ -36,20 +50,18 @@ def matrix_to_pose(mtx: np.ndarray):
 
     return pose
 
-
-def build_marker(header: Header, pose: Pose):
-    msg = Marker()
-    msg.header = header
-    msg.id = 0
-    msg.pose = pose
-    msg.scale.x = 1.0
-    msg.scale.y = 0.2
-    msg.scale.z = 0.2
-    msg.color.g = 1.0
-    msg.color.a = 1.0
-    return msg
-
 def build_transform(header: Header, pose: Pose, child_frame_id: str):
+    """Convenience function for packing a transform
+
+    :param header: A Header to provide timestamp and frame_id
+    :type header: Header
+    :param pose: The Pose of the child frame relative to the base frame
+    :type pose: Pose
+    :param child_frame_id: Frame ID of the child frame
+    :type child_frame_id: str
+    :return: A tf containing input information
+    :rtype: TransformStamped
+    """
     t = TransformStamped()
     t.header = header
     t.transform.translation.x = pose.position.x
@@ -60,6 +72,21 @@ def build_transform(header: Header, pose: Pose, child_frame_id: str):
     return t
 
 def build_odometry(header: Header, pose: Pose, position_cov: float, orientation_cov: float):
+    """Convenience function for packing an odom message.
+    Position and orientation variables are assumed to be independent.
+    Twist not currently implemented.
+
+    :param header: A Header to provide timestamp and frame_id
+    :type header: Header
+    :param pose: The Pose of the robot
+    :type pose: Pose
+    :param position_cov: Covariance value to use for x, y, and z
+    :type position_cov: float
+    :param orientation_cov: Covariance value to use for r_x, r_y, and r_z
+    :type orientation_cov: float
+    :return: An odom message containing input information
+    :rtype: Odometry
+    """
     odom = Odometry()
     odom.header = header
     odom.pose.pose = pose
