@@ -9,14 +9,16 @@ from rclpy.node import Node
 
 from kiss_slam.slam import KissSLAM
 from kiss_slam.config import load_config
+from kiss_slam.occupancy_mapper import OccupancyGridMapper
+from map_closures import map_closures
 
-from kiss_slam_ros.conversions import pc2_to_numpy, build_transform, build_odometry, matrix_to_pose
+from kiss_slam_ros.conversions import pc2_to_numpy, build_transform, build_odometry, build_map, matrix_to_pose
 from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rclpy.parameter import Parameter
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
 from sensor_msgs.msg import PointCloud2
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 
 class KissSLAMNode(Node):
 
@@ -52,9 +54,15 @@ class KissSLAMNode(Node):
         
         # Publishers
         self.odom_publisher = self.create_publisher(Odometry, 'odom', 10)
+        self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
-        self.slam = KissSLAM(load_config(None))
+        self.slam_config = load_config(None)
+        self.slam = KissSLAM(self.slam_config)
+        self.mapper = OccupancyGridMapper(self.slam_config.occupancy_mapper)
+        self.ref_ground_alignment = None
+        self.min_voxel_idx = (0, 0)
+
         self.add_on_set_parameters_callback(self.parameter_callback)
 
     def parameter_callback(self, params: list):
@@ -81,7 +89,8 @@ class KissSLAMNode(Node):
         :param in_msg: New points to injest
         :type in_msg: PointCloud2
         """
-        self.slam.process_scan(pc2_to_numpy(in_msg), np.empty((0,)))
+        pcd = pc2_to_numpy(in_msg)
+        self.slam.process_scan(pcd, np.empty((0,)))
 
         pose = matrix_to_pose(self.slam.poses[-1])
         header = Header()
@@ -93,6 +102,31 @@ class KissSLAMNode(Node):
 
         odom = build_odometry(header, pose, self.position_covariance, self.orientation_covariance)
         self.odom_publisher.publish(odom)
+        
+        self.update_mapper(pcd)
+        map_msg = build_map(header, self.occupancy_2d, self.min_voxel_idx, self.slam_config.occupancy_mapper.resolution)
+        self.map_publisher.publish(map_msg)
+
+    def update_mapper(self, pcd: np.ndarray):
+        """Use a point cloud to update the node's OccupancyGridMapper and store the new 2d grid.
+        Also update the minimum active voxel xy idx so the map origin can be placed.
+
+        :param pcd: Latest point cloud received
+        :type pcd: np.ndarray
+        """
+        if self.ref_ground_alignment is None:
+            self.ref_ground_alignment = map_closures.align_map_to_local_ground(
+                self.slam.voxel_grid.open3d_pcd_with_normals().point.positions.cpu().numpy(),
+                self.slam_config.odometry.mapping.voxel_size,
+            )
+        
+        self.mapper.integrate_frame(
+            pcd, self.ref_ground_alignment @ self.slam.poses[-1]
+        )
+        self.mapper.compute_3d_occupancy_information()
+        self.mapper.compute_2d_occupancy_information()
+        self.occupancy_2d = self.mapper.occupancy_grid
+        self.min_voxel_idx = (self.mapper.lower_bound[0], self.mapper.lower_bound[1])
 
 
 def main(args=None):
@@ -102,9 +136,6 @@ def main(args=None):
 
     rclpy.spin(kiss)
 
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
     kiss.destroy_node()
     rclpy.shutdown()
 

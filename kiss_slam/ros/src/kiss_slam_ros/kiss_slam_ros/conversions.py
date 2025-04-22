@@ -8,7 +8,9 @@ from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, TransformStamped
 from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
+
+from kiss_slam.voxel_map import VoxelMap
 
 
 def pc2_to_numpy(msg: PointCloud2):
@@ -97,3 +99,33 @@ def build_odometry(header: Header, pose: Pose, position_cov: float, orientation_
     odom.pose.covariance[28] = orientation_cov
     odom.pose.covariance[35] = orientation_cov
     return odom
+
+def build_map(header: Header, occupancy_2d: np.ndarray, min_voxel_idx: tuple, resolution: float):
+    """Convenience function for packing a map message.
+
+    :param header: A header to provide timestamp and frame_id
+    :type header: Header
+    :param occupancy_2d: An occupancy grid supplied by an OccupancyGridMapper
+    :type occupancy_2d: np.ndarray
+    :param min_voxel_idx: The lowest active voxel index, used to calculate map origin
+    :type min_voxel_idx: tuple
+    :param resolution: Size of a grid cell in m
+    :type resolution: float
+    :return: An occupancy grid message containing input information
+    :rtype: OccupancyGrid
+    """
+    map_msg = OccupancyGrid()
+    map_msg.header = header
+    map_msg.info.resolution = resolution
+    map_msg.info.width = occupancy_2d.shape[0]
+    map_msg.info.height = occupancy_2d.shape[1]
+    map_msg.info.origin.position.x = min_voxel_idx[0] * resolution
+    map_msg.info.origin.position.y = min_voxel_idx[1] * resolution
+
+    # Rotate, invert probabilities, and scale to [0, 100]
+    occupancy_image = np.rint(100 * (1 - occupancy_2d)).astype(int)
+    occupancy_image = np.rot90(occupancy_image)
+    occupancy_image = np.flip(occupancy_image, axis=0)
+    map_msg.data = occupancy_image.ravel().tolist()
+
+    return map_msg
