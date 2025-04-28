@@ -20,8 +20,11 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import os
+
 import numpy as np
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from kiss_slam_ros.conversions import (
     build_map,
     build_odometry,
@@ -52,7 +55,13 @@ class KissSLAMNode(Node):
         """Create parameters, subscriptions, publishers, and set up SLAM"""
         super().__init__("kiss_slam_node")
 
-        # TODO an argument to set the SLAM config, with a sensible default value
+        points_topic_desc = ParameterDescriptor(
+            description="Path to yaml file to use as KISS-SLAM config."
+        )
+        share_dir = get_package_share_directory("kiss_slam_ros")
+        default_slam_config = os.path.join(share_dir, "config", "default.yaml")
+        self.declare_parameter("slam_config", default_slam_config, points_topic_desc)
+        self.slam_config = self.get_parameter("slam_config").value
 
         points_topic_desc = ParameterDescriptor(
             description="What topic to listen on for PointCloud2 messages."
@@ -88,7 +97,7 @@ class KissSLAMNode(Node):
         self.map_publisher = self.create_publisher(OccupancyGrid, "map", 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
-        self.slam_config = load_config(None)
+        self.slam_config = load_config(self.slam_config)
         self.slam = KissSLAM(self.slam_config)
         self.mapper = OccupancyGridMapper(self.slam_config.occupancy_mapper)
         self.ref_ground_alignment = None
