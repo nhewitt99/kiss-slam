@@ -1,60 +1,69 @@
 import numpy as np
+import rclpy
+from kiss_slam_ros.conversions import (
+    build_map,
+    build_odometry,
+    build_transform,
+    matrix_to_pose,
+    pc2_to_numpy,
+)
+from map_closures import map_closures
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
+from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 # Scipy feels like a really heavy dependency just for rot/quat conversion
 # but it's being included anyway from KISS
 from scipy.spatial.transform import Rotation
-
-import rclpy
-from rclpy.node import Node
-
-from kiss_slam.slam import KissSLAM
-from kiss_slam.config import load_config
-from kiss_slam.occupancy_mapper import OccupancyGridMapper
-from map_closures import map_closures
-
-from kiss_slam_ros.conversions import pc2_to_numpy, build_transform, build_odometry, build_map, matrix_to_pose
-from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
-from rclpy.parameter import Parameter
+from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
-from sensor_msgs.msg import PointCloud2
-from nav_msgs.msg import Odometry, OccupancyGrid
+
+from kiss_slam.config import load_config
+from kiss_slam.occupancy_mapper import OccupancyGridMapper
+from kiss_slam.slam import KissSLAM
+
 
 class KissSLAMNode(Node):
-
     def __init__(self):
-        """Create parameters, subscriptions, publishers, and set up SLAM
-        """
-        super().__init__('kiss_slam_node')
+        """Create parameters, subscriptions, publishers, and set up SLAM"""
+        super().__init__("kiss_slam_node")
 
         # TODO an argument to set the SLAM config, with a sensible default value
 
-        points_topic_desc = ParameterDescriptor(description='What topic to listen on for PointCloud2 messages.')
-        self.declare_parameter('points_topic', '/points', points_topic_desc)
-        self.points_topic = self.get_parameter('points_topic').value
+        points_topic_desc = ParameterDescriptor(
+            description="What topic to listen on for PointCloud2 messages."
+        )
+        self.declare_parameter("points_topic", "/points", points_topic_desc)
+        self.points_topic = self.get_parameter("points_topic").value
 
-        map_frame_desc = ParameterDescriptor(description='Frame ID to use as parent for SLAM estimated transform. Dynamic.')
-        self.declare_parameter('map_frame', 'map', map_frame_desc)
-        self.map_frame = self.get_parameter('map_frame').value
+        map_frame_desc = ParameterDescriptor(
+            description="Frame ID to use as parent for SLAM estimated transform. Dynamic."
+        )
+        self.declare_parameter("map_frame", "map", map_frame_desc)
+        self.map_frame = self.get_parameter("map_frame").value
 
-        position_covariance_desc = ParameterDescriptor(description='Covariance value for position terms of odometry. Dynamic.')
-        self.declare_parameter('position_covariance', 0.1, position_covariance_desc)
-        self.position_covariance = self.get_parameter('position_covariance').value
+        position_covariance_desc = ParameterDescriptor(
+            description="Covariance value for position terms of odometry. Dynamic."
+        )
+        self.declare_parameter("position_covariance", 0.1, position_covariance_desc)
+        self.position_covariance = self.get_parameter("position_covariance").value
 
-        orientation_covariance_desc = ParameterDescriptor(description='Covariance value for orientation terms of odometry. Dynamic.')
-        self.declare_parameter('orientation_covariance', 0.1, orientation_covariance_desc)
-        self.orientation_covariance = self.get_parameter('orientation_covariance').value
+        orientation_covariance_desc = ParameterDescriptor(
+            description="Covariance value for orientation terms of odometry. Dynamic."
+        )
+        self.declare_parameter("orientation_covariance", 0.1, orientation_covariance_desc)
+        self.orientation_covariance = self.get_parameter("orientation_covariance").value
 
         # Main subscription to drive the SLAM process
         self.subscription = self.create_subscription(
-            PointCloud2,
-            self.points_topic,
-            self.cloud_callback,
-            10)
-        
+            PointCloud2, self.points_topic, self.cloud_callback, 10
+        )
+
         # Publishers
-        self.odom_publisher = self.create_publisher(Odometry, 'odom', 10)
-        self.map_publisher = self.create_publisher(OccupancyGrid, 'map', 10)
+        self.odom_publisher = self.create_publisher(Odometry, "odom", 10)
+        self.map_publisher = self.create_publisher(OccupancyGrid, "map", 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.slam_config = load_config(None)
@@ -74,14 +83,14 @@ class KissSLAMNode(Node):
         :rtype: SetParametersResult
         """
         for param in params:
-            if param.name == 'map_frame' and param.type_ == Parameter.Type.STRING:
+            if param.name == "map_frame" and param.type_ == Parameter.Type.STRING:
                 self.map_frame = param.value
-            if param.name == 'position_covariance' and param.type_ == Parameter.Type.DOUBLE:
+            if param.name == "position_covariance" and param.type_ == Parameter.Type.DOUBLE:
                 self.position_covariance = param.value
-            if param.name == 'orientation_covariance' and param.type_ == Parameter.Type.DOUBLE:
+            if param.name == "orientation_covariance" and param.type_ == Parameter.Type.DOUBLE:
                 self.orientation_covariance = param.value
         return SetParametersResult(successful=True)
-    
+
     def cloud_callback(self, in_msg: PointCloud2):
         """When receiving a new point cloud, run KISS-SLAM and produce a tf and odometry
         estimate in the same frame as the point source
@@ -102,9 +111,14 @@ class KissSLAMNode(Node):
 
         odom = build_odometry(header, pose, self.position_covariance, self.orientation_covariance)
         self.odom_publisher.publish(odom)
-        
+
         self.update_mapper(pcd)
-        map_msg = build_map(header, self.occupancy_2d, self.min_voxel_idx, self.slam_config.occupancy_mapper.resolution)
+        map_msg = build_map(
+            header,
+            self.occupancy_2d,
+            self.min_voxel_idx,
+            self.slam_config.occupancy_mapper.resolution,
+        )
         self.map_publisher.publish(map_msg)
 
     def update_mapper(self, pcd: np.ndarray):
@@ -119,10 +133,8 @@ class KissSLAMNode(Node):
                 self.slam.voxel_grid.open3d_pcd_with_normals().point.positions.cpu().numpy(),
                 self.slam_config.odometry.mapping.voxel_size,
             )
-        
-        self.mapper.integrate_frame(
-            pcd, self.ref_ground_alignment @ self.slam.poses[-1]
-        )
+
+        self.mapper.integrate_frame(pcd, self.ref_ground_alignment @ self.slam.poses[-1])
         self.mapper.compute_3d_occupancy_information()
         self.mapper.compute_2d_occupancy_information()
         self.occupancy_2d = self.mapper.occupancy_grid
@@ -140,5 +152,5 @@ def main(args=None):
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

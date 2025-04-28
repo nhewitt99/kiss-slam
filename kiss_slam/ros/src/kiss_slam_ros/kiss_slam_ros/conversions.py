@@ -1,14 +1,13 @@
 import numpy as np
+from geometry_msgs.msg import Pose, TransformStamped
+from nav_msgs.msg import OccupancyGrid, Odometry
 
 # Scipy is a really heavy dependency just for rot/quat conversion
 # but it's being included anyway from KISS
 from scipy.spatial.transform import Rotation
-
-from std_msgs.msg import Header
-from geometry_msgs.msg import Pose, TransformStamped
-from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2
-from nav_msgs.msg import Odometry, OccupancyGrid
+from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
 
 from kiss_slam.voxel_map import VoxelMap
 
@@ -17,16 +16,17 @@ def pc2_to_numpy(msg: PointCloud2):
     """Convert a PointCloud2 to an (n, 3) numpy array for injestion by KISS-SLAM.
     This is distinct from point_cloud2.read_points_numpy() so we can handle clouds that
     have a different dtype between xyz and other fields.
-    
+
     :param msg: Point source to be converted
     :type msg: PointCloud2
     :return: An array of size (n,3) with the same point information
     :rtype: np.ndarray
     """
-    fields = ['x', 'y', 'z']
+    fields = ["x", "y", "z"]
     structured = point_cloud2.read_points(msg, field_names=fields)
     unstructured = point_cloud2.structured_to_unstructured(structured)
     return unstructured
+
 
 def matrix_to_pose(mtx: np.ndarray):
     """Convert a homogenous transformation matrix into a geometry_msgs Pose.
@@ -39,11 +39,11 @@ def matrix_to_pose(mtx: np.ndarray):
     """
     pose = Pose()
 
-    pose.position.x = mtx[0,3]
-    pose.position.y = mtx[1,3]
-    pose.position.z = mtx[2,3]
+    pose.position.x = mtx[0, 3]
+    pose.position.y = mtx[1, 3]
+    pose.position.z = mtx[2, 3]
 
-    R = Rotation.from_matrix(mtx[:3,:3])
+    R = Rotation.from_matrix(mtx[:3, :3])
     q = R.as_quat()
     pose.orientation.x = q[0]
     pose.orientation.y = q[1]
@@ -51,6 +51,7 @@ def matrix_to_pose(mtx: np.ndarray):
     pose.orientation.w = q[3]
 
     return pose
+
 
 def build_transform(header: Header, pose: Pose, child_frame_id: str):
     """Convenience function for packing a transform
@@ -72,6 +73,7 @@ def build_transform(header: Header, pose: Pose, child_frame_id: str):
     t.transform.rotation = pose.orientation
     t.child_frame_id = child_frame_id
     return t
+
 
 def build_odometry(header: Header, pose: Pose, position_cov: float, orientation_cov: float):
     """Convenience function for packing an odom message.
@@ -99,6 +101,7 @@ def build_odometry(header: Header, pose: Pose, position_cov: float, orientation_
     odom.pose.covariance[28] = orientation_cov
     odom.pose.covariance[35] = orientation_cov
     return odom
+
 
 def build_map(header: Header, occupancy_2d: np.ndarray, min_voxel_idx: tuple, resolution: float):
     """Convenience function for packing a map message.
