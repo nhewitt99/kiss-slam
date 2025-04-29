@@ -22,11 +22,7 @@
 # SOFTWARE.
 from setuptools import find_packages, setup
 
-from kiss_slam.config.config import write_config
-
 package_name = "kiss_slam_ros"
-
-write_config(filename="config/default.yaml")
 
 setup(
     name=package_name,
@@ -35,7 +31,6 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/config", ["config/default.yaml"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
