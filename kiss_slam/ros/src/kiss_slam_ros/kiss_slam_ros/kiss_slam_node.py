@@ -31,21 +31,18 @@ from kiss_slam_ros.conversions import (
     build_transform,
     matrix_to_pose,
     pc2_to_numpy,
+    slam_config_from_params,
+    slam_params_from_config,
 )
 from map_closures import map_closures
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-
-# Scipy feels like a really heavy dependency just for rot/quat conversion
-# but it's being included anyway from KISS
-from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
 
-from kiss_slam.config import load_config
 from kiss_slam.occupancy_mapper import OccupancyGridMapper
 from kiss_slam.slam import KissSLAM
 
@@ -55,14 +52,10 @@ class KissSLAMNode(Node):
         """Create parameters, subscriptions, publishers, and set up SLAM"""
         super().__init__("kiss_slam_node")
 
-        points_topic_desc = ParameterDescriptor(
-            description="Path to yaml file to use as KISS-SLAM config."
-        )
-        share_dir = get_package_share_directory("kiss_slam_ros")
-        default_slam_config = os.path.join(share_dir, "config", "default.yaml")
-        self.declare_parameter("slam_config", default_slam_config, points_topic_desc)
-        self.slam_config = self.get_parameter("slam_config").value
+        # Create all the KISS-SLAM parameters in one go
+        self.declare_parameters("", slam_params_from_config(None))
 
+        # Params specific to ROS wrapper
         points_topic_desc = ParameterDescriptor(
             description="What topic to listen on for PointCloud2 messages."
         )
@@ -97,9 +90,12 @@ class KissSLAMNode(Node):
         self.map_publisher = self.create_publisher(OccupancyGrid, "map", 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
-        self.slam_config = load_config(self.slam_config)
+        # Pull slam config params and initialize
+        self.slam_config = slam_config_from_params(self)
         self.slam = KissSLAM(self.slam_config)
         self.mapper = OccupancyGridMapper(self.slam_config.occupancy_mapper)
+
+        # Initial variables for mapping
         self.ref_ground_alignment = None
         self.min_voxel_idx = (0, 0)
 

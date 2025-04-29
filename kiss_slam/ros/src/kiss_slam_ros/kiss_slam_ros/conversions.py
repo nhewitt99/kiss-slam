@@ -23,6 +23,11 @@
 import numpy as np
 from geometry_msgs.msg import Pose, TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.exceptions import (
+    ParameterNotDeclaredException,
+    ParameterUninitializedException,
+)
+from rclpy.node import Node
 
 # Scipy is a really heavy dependency just for rot/quat conversion
 # but it's being included anyway from KISS
@@ -31,7 +36,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 
-from kiss_slam.voxel_map import VoxelMap
+from kiss_slam.config import KissSLAMConfig, load_config
 
 
 def pc2_to_numpy(msg: PointCloud2):
@@ -154,3 +159,76 @@ def build_map(header: Header, occupancy_2d: np.ndarray, min_voxel_idx: tuple, re
     map_msg.data = occupancy_image.ravel().tolist()
 
     return map_msg
+
+
+def slam_params_from_config(config_file: str | None, param_ns: str = "slam_config"):
+    """Generate a list of params with default values from a KISS-SLAM config
+
+    :param config_file: Path to a config yaml. Use None for default.
+    :type config_file: str | None
+    :param param_ns: An optional leading namespace, defaults to "slam_config"
+    :type param_ns: str, optional
+    :return: Params to be ingested by declare_parameters
+    :rtype: List[Tuple[str, Any]]
+    """
+    default_dict = load_config(config_file).model_dump()
+
+    def recurse_dict(name, value):
+        params = []
+
+        # Handle deeper levels of dict by suffixing keys (level0.level1.leveln)
+        # and extending list with new entries
+        if isinstance(value, dict):
+            for k, v in value.items():
+                params.extend(recurse_dict(name + "." + str(k), v))
+
+        # At lowest level, create a new list containing only full name and its value
+        else:
+            params = [(name, value)]
+
+        return params
+
+    return recurse_dict(param_ns, default_dict)
+
+
+def slam_config_from_params(node: Node, param_ns: str = "slam_config"):
+    """Create a KissSLAMConfig by looking up a node's params
+
+    :param node: ROS2 node which should have KISS-SLAM params
+    :type node: Node
+    :param param_ns: An optional leading namespace, defaults to "slam_config"
+    :type param_ns: str, optional
+    :return: A new config containing information found in the parameters
+    :rtype: KissSLAMConfig
+    """
+    template = load_config(None)
+    template_dict = template.model_dump()
+
+    def recurse_dict(name, value):
+        updated_dict = {}
+
+        # Handle deeper levels of dict by suffixing keys and adding unsuffixed
+        # key to dict if its value is valid
+        if isinstance(value, dict):
+            for k, v in value.items():
+                new_v = recurse_dict(name + "." + str(k), v)
+                if new_v is None:
+                    pass
+                updated_dict[k] = new_v
+
+        # Try to retrieve param value using full key name, return None if it
+        # was not initialized
+        else:
+            try:
+                param_value = node.get_parameter(name).value
+                return param_value
+            except ParameterNotDeclaredException:
+                return None
+            except ParameterUninitializedException:
+                return None
+
+        return updated_dict
+
+    # Fetch params and incorporate to a new config object
+    new_dict = recurse_dict(param_ns, template_dict)
+    return KissSLAMConfig.model_validate(new_dict)
