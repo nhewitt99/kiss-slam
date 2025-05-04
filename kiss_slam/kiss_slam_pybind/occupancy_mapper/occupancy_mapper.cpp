@@ -69,6 +69,18 @@ std::tuple<Vector3iVector, std::vector<float>> OccupancyMapper::GetOccupancyInfo
     return std::make_tuple(voxel_indices, voxel_occupancies);
 }
 
+Vector3iVector OccupancyMapper::GetOccupiedVoxels(float probability_threshold) const {
+    Vector3iVector voxel_indices;
+    const auto num_of_active_voxels = map_.activeCellsCount();
+    voxel_indices.reserve(num_of_active_voxels);
+    map_.forEachCell([&](const float &logodds, const Bonxai::CoordT &voxel) {
+        if (ProbabilityOccupied(logodds) > probability_threshold) {
+            voxel_indices.emplace_back(Bonxai::ConvertPoint<Eigen::Vector3i>(voxel));
+        }
+    });
+    return voxel_indices;
+}
+
 void OccupancyMapper::UpdateVoxelOccupancy(const Bonxai::CoordT &coord, const float value) {
     // tg exploit Vdb caching
     accessor_.setCellOn(coord, 0.0);
