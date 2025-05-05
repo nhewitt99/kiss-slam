@@ -56,7 +56,7 @@ class OccupancyGridMapper:
             np.where(self.occupancies > self.config.occupied_threshold)[0]
         ]
 
-    def compute_3d_only_occupied_voxels(self):
+    def compute_3d_occupied_voxels(self):
         occupied_voxels = self.occupancy_mapping_pipeline._get_occupied_voxels(
             self.config.occupied_threshold
         )
